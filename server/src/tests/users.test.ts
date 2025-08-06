@@ -23,7 +23,9 @@ describe('createUser', () => {
 
     expect(result.username).toEqual('testuser');
     expect(result.email).toEqual('test@example.com');
-    expect(result.password_hash).toEqual('hashed_password123');
+    // Check that password is properly hashed (salt:hash format)
+    expect(result.password_hash).toMatch(/^[a-f0-9]{32}:[a-f0-9]{64}$/);
+    expect(result.password_hash).not.toEqual('password123'); // Should not be plain text
     expect(result.role).toEqual('cashier');
     expect(result.is_active).toBe(true);
     expect(result.id).toBeDefined();
@@ -42,7 +44,8 @@ describe('createUser', () => {
     expect(users).toHaveLength(1);
     expect(users[0].username).toEqual('testuser');
     expect(users[0].email).toEqual('test@example.com');
-    expect(users[0].password_hash).toEqual('hashed_password123');
+    // Check that password is properly hashed (salt:hash format)
+    expect(users[0].password_hash).toMatch(/^[a-f0-9]{32}:[a-f0-9]{64}$/);
     expect(users[0].role).toEqual('cashier');
     expect(users[0].is_active).toBe(true);
   });
@@ -105,7 +108,8 @@ describe('getUsers', () => {
     const users = await getUsers();
 
     expect(users).toHaveLength(1);
-    expect(users[0].password_hash).toEqual('hashed_password123');
+    // Check that password is properly hashed (salt:hash format)
+    expect(users[0].password_hash).toMatch(/^[a-f0-9]{32}:[a-f0-9]{64}$/);
   });
 });
 

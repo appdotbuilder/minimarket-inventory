@@ -82,6 +82,7 @@ import {
   getLowStockAlerts,
   getExpiryAlerts
 } from './handlers/dashboard';
+import { seedDemoUsers } from './handlers/setup';
 
 const t = initTRPC.create({
   transformer: superjson,
@@ -341,12 +342,24 @@ const appRouter = router({
 
   getExpiryAlerts: publicProcedure
     .query(() => getExpiryAlerts()),
+
+  // Setup route for manual demo user seeding
+  seedDemoUsers: publicProcedure
+    .mutation(() => seedDemoUsers()),
 });
 
 export type AppRouter = typeof appRouter;
 
 async function start() {
   const port = process.env['SERVER_PORT'] || 2022;
+  
+  // Seed demo users on server start
+  try {
+    await seedDemoUsers();
+  } catch (error) {
+    console.warn('Demo user seeding failed:', error);
+  }
+  
   const server = createHTTPServer({
     middleware: (req, res, next) => {
       cors()(req, res, next);

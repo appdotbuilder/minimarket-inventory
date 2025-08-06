@@ -3,11 +3,12 @@ import { db } from '../db';
 import { usersTable } from '../db/schema';
 import { type CreateUserInput, type User, type UserRole } from '../schema';
 import { eq } from 'drizzle-orm';
+import { createPasswordHash } from './auth';
 
 export async function createUser(input: CreateUserInput): Promise<User> {
   try {
-    // Hash the password (simple hash for demo - in production use bcrypt)
-    const password_hash = `hashed_${input.password}`;
+    // Hash the password using proper crypto functions
+    const password_hash = createPasswordHash(input.password);
 
     const result = await db.insert(usersTable)
       .values({
