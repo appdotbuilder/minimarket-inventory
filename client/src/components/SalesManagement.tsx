@@ -9,9 +9,31 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, Upload, Search, DollarSign, FileSpreadsheet, Loader2, AlertTriangle, ShoppingCart, Receipt } from 'lucide-react';
+// Excel import functionality - requires 'xlsx' package to be installed
+// To use this feature, run: npm install xlsx@^0.18.5
+interface XLSXWorkbook {
+  SheetNames: string[];
+  Sheets: { [key: string]: unknown };
+}
+
+interface XLSXUtils {
+  sheet_to_json: (worksheet: unknown, options?: { header?: number }) => unknown[];
+}
+
+interface XLSXModule {
+  read: (data: ArrayBuffer) => XLSXWorkbook;
+  utils: XLSXUtils;
+}
+
+let XLSX: XLSXModule | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  XLSX = require('xlsx') as XLSXModule;
+} catch {
+  // xlsx package not installed
+}
 import type { Sales, CreateSalesInput, SalesExcelRow, Product, UserRole } from '../../../server/src/schema';
 
 interface SalesManagementProps {
@@ -49,7 +71,7 @@ export function SalesManagement({ userRole }: SalesManagementProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isPOSMode, setIsPOSMode] = useState(false);
-  const [importText, setImportText] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [cart, setCart] = useState<CreateSalesInput[]>([]);
 
   const [formData, setFormData] = useState<CreateSalesInput>({
@@ -235,9 +257,37 @@ export function SalesManagement({ userRole }: SalesManagementProps) {
     }
   };
 
-  const handleImportExcel = async () => {
-    if (!importText.trim()) {
-      setError('Please paste Excel data');
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!XLSX) {
+      setError('Excel import requires the xlsx package. Please install it first: npm install xlsx@^0.18.5');
+      return;
+    }
+
+    setSelectedFile(file);
+    setError('');
+
+    try {
+      // Read the file
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      
+      // Process the parsed data
+      await processImportedData(jsonData as (string | number)[][]);
+      
+    } catch (error) {
+      console.error('Failed to read file:', error);
+      setError('Failed to read Excel file');
+    }
+  };
+
+  const processImportedData = async (jsonData: (string | number)[][]) => {
+    if (jsonData.length < 2) {
+      setError('Excel file must contain at least a header row and one data row');
       return;
     }
 
@@ -246,10 +296,7 @@ export function SalesManagement({ userRole }: SalesManagementProps) {
     setSuccess('');
 
     try {
-      // Parse CSV/Excel data
-      const lines = importText.trim().split('\n');
-      
-      // Validate headers match expected schema
+      // Expected headers for sales import
       const expectedHeaders = [
         'tgl_jual', 'f_jual', 'acc', 'kode_brg', 'nama_brg', 'jumlah', 'satuan', 
         'hrg_jual', 'disc1', 'disc2', 'disc3', 'disc_rp', 'ppn', 'codelg', 'nama_lg'
@@ -257,21 +304,24 @@ export function SalesManagement({ userRole }: SalesManagementProps) {
 
       const excelData: SalesExcelRow[] = [];
       
-      for (let i = 1; i < lines.length; i++) {
-        if (lines[i].trim()) {
-          const values = lines[i].split('\t');
+      // Process data rows (skip header)
+      for (let i = 1; i < jsonData.length; i++) {
+        const values = jsonData[i];
+        if (values && values.length > 0) {
           const row = {} as ExcelRowData;
           
           expectedHeaders.forEach((header: string, index: number) => {
-            const value = values[index]?.trim() || '';
+            const value = values[index];
+            const stringValue = value?.toString()?.trim() || '';
+            
             if (['jumlah', 'hrg_jual', 'disc1', 'disc2', 'disc3', 'disc_rp', 'ppn'].includes(header)) {
-              row[header] = parseFloat(value) || 0;
+              row[header] = parseFloat(stringValue) || 0;
             } else if (['acc', 'codelg', 'nama_lg'].includes(header)) {
-              row[header] = value || undefined;
+              row[header] = stringValue || undefined;
             } else if (header === 'tgl_jual') {
-              row[header] = value;
+              row[header] = stringValue;
             } else {
-              row[header] = value;
+              row[header] = stringValue;
             }
           });
           
@@ -286,7 +336,7 @@ export function SalesManagement({ userRole }: SalesManagementProps) {
         setError(`Errors: ${result.errors.join(', ')}`);
       }
       
-      setImportText('');
+      setSelectedFile(null);
       setIsImportDialogOpen(false);
       loadSales(); // Reload sales
       
@@ -366,23 +416,35 @@ export function SalesManagement({ userRole }: SalesManagementProps) {
                     <div className="bg-blue-50 p-4 rounded-lg">
                       <h4 className="font-medium text-blue-800 mb-2">📋 Excel Format Instructions:</h4>
                       <p className="text-sm text-blue-700 mb-3">
-                        Copy and paste your Excel data with these columns (in order):
+                        Upload an Excel file (.xlsx, .xls, .csv) with these columns (in order):
                       </p>
                       <div className="text-xs font-mono bg-white p-2 rounded border overflow-x-auto">
                         tgl_jual | f_jual | acc | kode_brg | nama_brg | jumlah | satuan | hrg_jual | 
                         disc1 | disc2 | disc3 | disc_rp | ppn | codelg | nama_lg
                       </div>
+                      {!XLSX && (
+                        <div className="mt-3 p-2 bg-yellow-100 rounded border border-yellow-300">
+                          <p className="text-xs text-yellow-800">
+                            ⚠️ Note: Excel import requires the xlsx package. To enable this feature, run: <code>npm install xlsx@^0.18.5</code>
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div>
-                      <Label htmlFor="importData">Paste Excel Data (Tab-separated)</Label>
-                      <Textarea
-                        id="importData"
-                        value={importText}
-                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setImportText(e.target.value)}
-                        placeholder="Paste your Excel data here..."
-                        className="min-h-[200px] font-mono text-sm"
+                      <Label htmlFor="excelFile">Select Excel File</Label>
+                      <Input
+                        id="excelFile"
+                        type="file"
+                        accept=".xlsx, .xls, .csv"
+                        onChange={handleFileChange}
+                        className="w-full"
                       />
+                      {selectedFile && (
+                        <p className="text-sm text-green-600 mt-2">
+                          ✅ Selected: {selectedFile.name}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex justify-end space-x-2">
@@ -393,8 +455,7 @@ export function SalesManagement({ userRole }: SalesManagementProps) {
                         Cancel
                       </Button>
                       <Button
-                        onClick={handleImportExcel}
-                        disabled={isSubmitting || !importText.trim()}
+                        disabled={isSubmitting || !selectedFile}
                         className="bg-green-600 hover:bg-green-700"
                       >
                         {isSubmitting ? (
